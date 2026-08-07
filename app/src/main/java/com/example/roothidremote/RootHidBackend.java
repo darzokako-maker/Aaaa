@@ -13,18 +13,6 @@ final class RootHidBackend {
     RootHidBackend(String keyboardPath, String mousePath) {
         this.keyboardPath = keyboardPath;
         this.mousePath = mousePath;
-        initShell();
-    }
-
-    private synchronized void initShell() {
-        if (suProcess != null) return;
-        try {
-            suProcess = new ProcessBuilder("su").redirectErrorStream(true).start();
-            os = new DataOutputStream(suProcess.getOutputStream());
-        } catch (Exception e) {
-            suProcess = null;
-            os = null;
-        }
     }
 
     boolean canUseRoot() {
@@ -53,42 +41,15 @@ final class RootHidBackend {
     }
 
     private synchronized void writeHex(String device, byte[] bytes) throws IOException {
-        initShell();
-        if (os == null) {
-            throw new IOException("Root shell başlatılamadı.");
+        if (suProcess == null || os == null) {
+            suProcess = Runtime.getRuntime().exec("su");
+            os = new DataOutputStream(suProcess.getOutputStream());
         }
-
         StringBuilder hex = new StringBuilder();
-        for (byte b : bytes) {
-            hex.append(String.format(Locale.US, "\\x%02x", b & 0xff));
-        }
-        
+        for (byte b : bytes) hex.append(String.format(Locale.US, "\\x%02x", b & 0xff));
         String command = "printf '" + hex + "' > " + shellQuote(device) + "\n";
-        
-        try {
-            os.writeBytes(command);
-            os.flush();
-        } catch (IOException e) {
-            closeShell();
-            initShell();
-            if (os != null) {
-                os.writeBytes(command);
-                os.flush();
-            } else {
-                throw e;
-            }
-        }
-    }
-
-    private synchronized void closeShell() {
-        if (os != null) {
-            try { os.writeBytes("exit\n"); os.flush(); os.close(); } catch (Exception ignored) {}
-        }
-        if (suProcess != null) {
-            suProcess.destroy();
-        }
-        os = null;
-        suProcess = null;
+        os.writeBytes(command);
+        os.flush();
     }
 
     private static String shellQuote(String value) {
