@@ -71,6 +71,8 @@ public class MainActivity extends Activity {
         Button check = button("Bluetooth / root durumunu kontrol et"); root.addView(check);
         
         Button scanBt = button("Cihazları Tara / Eşleşenleri Getir"); root.addView(scanBt);
+        EditText macAddress = new EditText(this); macAddress.setHint("MAC adresi ile bağlan (00:11:22:AA:BB:CC)"); root.addView(macAddress);
+        Button connectMac = button("MAC ile Bluetooth HID bağlan"); root.addView(connectMac);
 
         deviceListAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
         ListView deviceListView = new ListView(this);
@@ -88,13 +90,14 @@ public class MainActivity extends Activity {
 
         check.setOnClickListener(v -> refreshStatus());
         scanBt.setOnClickListener(v -> startBluetoothScan());
+        connectMac.setOnClickListener(v -> connectBluetoothByMac(macAddress.getText().toString()));
         
         deviceListView.setOnItemClickListener((parent, view, position, id) -> {
             if (position < discoveredDevices.size()) {
                 BluetoothDevice selectedDevice = discoveredDevices.get(position);
                 new Thread(() -> {
                     boolean connected = bluetoothBackend.connectDevice(selectedDevice);
-                    runOnUiThread(() -> Toast.makeText(this, (connected ? "Bağlantı kuruluyor: " : "Bağlantı başarısız: ") + bluetoothDeviceAddress(selectedDevice), Toast.LENGTH_SHORT).show());
+                    runOnUiThread(() -> showBluetoothConnectResult(connected));
                 }).start();
             }
         });
@@ -195,6 +198,23 @@ public class MainActivity extends Activity {
         } catch (SecurityException missingPermission) {
             return "Adres izni yok";
         }
+    }
+
+    private void connectBluetoothByMac(String macAddress) {
+        if (!hasBluetoothRuntimePermissions()) {
+            Toast.makeText(this, "MAC ile bağlantı için Bluetooth izni verin", Toast.LENGTH_LONG).show();
+            requestBluetoothRuntimePermissions();
+            return;
+        }
+        new Thread(() -> {
+            boolean connected = bluetoothBackend.connectByMac(macAddress);
+            runOnUiThread(() -> showBluetoothConnectResult(connected));
+        }).start();
+    }
+
+    private void showBluetoothConnectResult(boolean commandSent) {
+        refreshStatus();
+        Toast.makeText(this, commandSent ? "Bluetooth bağlantı isteği gönderildi" : bluetoothBackend.status(), Toast.LENGTH_LONG).show();
     }
 
     private void refreshStatus() {
