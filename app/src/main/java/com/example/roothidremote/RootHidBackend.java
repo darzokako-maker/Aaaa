@@ -55,7 +55,7 @@ final class RootHidBackend {
     private synchronized void writeHex(String device, byte[] bytes) throws IOException {
         initShell();
         if (os == null) {
-            throw new IOException("Root shell başlatılamadı. Root yetkisini kontrol edin.");
+            throw new IOException("Root shell başlatılamadı.");
         }
 
         StringBuilder hex = new StringBuilder();
@@ -69,7 +69,6 @@ final class RootHidBackend {
             os.writeBytes(command);
             os.flush();
         } catch (IOException e) {
-            // Kabuk koparsa temizleyip tekrar dene
             closeShell();
             initShell();
             if (os != null) {
