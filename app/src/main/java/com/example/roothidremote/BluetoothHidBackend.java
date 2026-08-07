@@ -1,6 +1,8 @@
 package com.example.roothidremote;
 
+import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHidDevice;
 import android.bluetooth.BluetoothProfile;
 import android.content.Context;
@@ -15,7 +17,9 @@ final class BluetoothHidBackend {
         if (adapter == null) return false;
         try {
             return adapter.getProfileProxy(context, new BluetoothProfile.ServiceListener() {
-                @Override public void onServiceConnected(int profile, BluetoothProfile proxy) { if (proxy instanceof BluetoothHidDevice) hidDevice = (BluetoothHidDevice) proxy; }
+                @Override public void onServiceConnected(int profile, BluetoothProfile proxy) { 
+                    if (proxy instanceof BluetoothHidDevice) hidDevice = (BluetoothHidDevice) proxy; 
+                }
                 @Override public void onServiceDisconnected(int profile) { hidDevice = null; }
             }, BluetoothProfile.HID_DEVICE);
         } catch (SecurityException privilegedMissing) {
@@ -23,9 +27,15 @@ final class BluetoothHidBackend {
         }
     }
 
+    @SuppressLint("MissingPermission")
+    boolean connectDevice(BluetoothDevice device) {
+        if (hidDevice == null || device == null) return false;
+        return hidDevice.connect(device);
+    }
+
     String status() {
         return hidDevice == null
-                ? "Bluetooth HID Device API requires a privileged/system app signature on most Android builds. Root alone is not enough unless you install as a privileged app or use a custom ROM."
-                : "Bluetooth HID profile proxy opened. Pair from the target device, then send keyboard/mouse reports.";
+                ? "Bluetooth HID Device API kısıtlı. Sistem/Privileged izin gerekir."
+                : "Bluetooth HID aktif. Hedef cihazı listeden seçip bağlanın.";
     }
 }
