@@ -41,15 +41,37 @@ final class RootHidBackend {
     }
 
     private synchronized void writeHex(String device, byte[] bytes) throws IOException {
-        if (suProcess == null || os == null) {
-            suProcess = Runtime.getRuntime().exec("su");
-            os = new DataOutputStream(suProcess.getOutputStream());
+        try {
+            // Root oturumu açılmamışsa veya kapandıysa yeni oturum başlat
+            if (suProcess == null || os == null) {
+                suProcess = Runtime.getRuntime().exec("su");
+                os = new DataOutputStream(suProcess.getOutputStream());
+            }
+
+            StringBuilder hex = new StringBuilder();
+            for (byte b : bytes) {
+                hex.append(String.format(Locale.US, "\\x%02x", b & 0xff));
+            }
+
+            String command = "printf '" + hex + "' > " + shellQuote(device) + "\n";
+            os.writeBytes(command);
+            os.flush();
+        } catch (IOException e) {
+            // Hata oluştuysa (akış koptuysa) değişkenleri sıfırla ki bir sonraki veride oturum yeniden açılabilisin
+            closeQuietly();
+            throw e;
         }
-        StringBuilder hex = new StringBuilder();
-        for (byte b : bytes) hex.append(String.format(Locale.US, "\\x%02x", b & 0xff));
-        String command = "printf '" + hex + "' > " + shellQuote(device) + "\n";
-        os.writeBytes(command);
-        os.flush();
+    }
+
+    private synchronized void closeQuietly() {
+        if (os != null) {
+            try { os.close(); } catch (Exception ignored) {}
+            os = null;
+        }
+        if (suProcess != null) {
+            try { suProcess.destroy(); } catch (Exception ignored) {}
+            suProcess = null;
+        }
     }
 
     private static String shellQuote(String value) {
