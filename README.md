@@ -6,7 +6,7 @@ Android telefondan başka bir cihaza klavye ve mouse HID raporları göndermek i
 
 - **Root + `/dev/hidg*` USB gadget modu:** Uygulama `su` ile `/dev/hidg0` dosyasına klavye, `/dev/hidg1` dosyasına mouse raporu yazar.
 - **Bluetooth HID denemesi:** Android `BluetoothHidDevice` profili açılabiliyor mu diye kontrol eder. Çoğu stock ROM'da bu profil `BLUETOOTH_PRIVILEGED` istediği için APK'nın privileged/system app olarak kurulması veya custom ROM gerekir.
-- **Hazır UI:** Durum kontrolü, yazı gönderme, touchpad ile mouse hareketi, sol tık ve sağ tık.
+- **Hazır UI:** Durum kontrolü, Bluetooth cihaz tarama/seçme/bağlanma, yazı gönderme, touchpad ile mouse hareketi, sol tık ve sağ tık.
 - **USB gadget hazırlama scripti:** `scripts/setup-usb-hid-gadget.sh` configfs üstünden keyboard + mouse gadget oluşturur.
 
 ## Hızlı kullanım
@@ -19,8 +19,9 @@ Android telefondan başka bir cihaza klavye ve mouse HID raporları göndermek i
    ```
 
 3. Uygulamada **Bluetooth / root durumunu kontrol et** butonuna bas.
-4. Hedef cihaza USB ile bağlan veya privileged Bluetooth HID destekliyorsa Bluetooth eşleştirmeyi hedef cihazdan başlat.
-5. Yazı kutusundan klavye, pad alanından mouse gönder.
+4. Bluetooth için **Bluetooth cihazlarını tara / yenile** ile cihazları listele, listeden hedefi seç ve **Seçili Bluetooth cihaza bağlan** butonuna bas.
+5. USB için hedef cihaza kabloyla bağlan; Bluetooth için privileged HID destekliyorsa eşleştirme/bağlanma isteğini hedef cihazda onayla.
+6. Yazı kutusundan klavye, pad alanından mouse gönder.
 
 ## Derleme
 

@@ -1,31 +1,154 @@
 package com.example.roothidremote;
 
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHidDevice;
+import android.bluetooth.BluetoothHidDeviceAppSdpSettings;
 import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.os.Build;
 
-final class BluetoothHidBackend {
-    private BluetoothHidDevice hidDevice;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
-    boolean isSupported(Context context) {
-        if (Build.VERSION.SDK_INT < 28) return false;
-        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-        if (adapter == null) return false;
+final class BluetoothHidBackend {
+    private final Executor executor = Executors.newSingleThreadExecutor();
+    private BluetoothAdapter adapter;
+    private BluetoothHidDevice hidDevice;
+    private boolean appRegistered;
+    private String lastStatus = "Bluetooth hazır değil.";
+
+    boolean initialize(Context context) {
+        if (Build.VERSION.SDK_INT < 28) {
+            lastStatus = "Bluetooth HID Device API Android 9+ ister.";
+            return false;
+        }
+        adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) {
+            lastStatus = "Bu cihazda Bluetooth adapter bulunamadı.";
+            return false;
+        }
         try {
             return adapter.getProfileProxy(context, new BluetoothProfile.ServiceListener() {
-                @Override public void onServiceConnected(int profile, BluetoothProfile proxy) { if (proxy instanceof BluetoothHidDevice) hidDevice = (BluetoothHidDevice) proxy; }
-                @Override public void onServiceDisconnected(int profile) { hidDevice = null; }
+                @Override public void onServiceConnected(int profile, BluetoothProfile proxy) {
+                    if (profile == BluetoothProfile.HID_DEVICE && proxy instanceof BluetoothHidDevice) {
+                        hidDevice = (BluetoothHidDevice) proxy;
+                        registerApp();
+                    }
+                }
+                @Override public void onServiceDisconnected(int profile) {
+                    if (profile == BluetoothProfile.HID_DEVICE) {
+                        hidDevice = null;
+                        appRegistered = false;
+                        lastStatus = "Bluetooth HID profili kapandı.";
+                    }
+                }
             }, BluetoothProfile.HID_DEVICE);
         } catch (SecurityException privilegedMissing) {
+            lastStatus = privilegedMessage();
+            return false;
+        }
+    }
+
+    List<BluetoothDevice> bondedDevices() {
+        List<BluetoothDevice> devices = new ArrayList<>();
+        if (adapter == null) return devices;
+        try {
+            Set<BluetoothDevice> bonded = adapter.getBondedDevices();
+            if (bonded != null) devices.addAll(bonded);
+        } catch (SecurityException e) {
+            lastStatus = "Bluetooth cihaz listesi için BLUETOOTH_CONNECT izni gerekli.";
+        }
+        return devices;
+    }
+
+    boolean startDiscovery() {
+        if (adapter == null) return false;
+        try {
+            if (adapter.isDiscovering()) adapter.cancelDiscovery();
+            return adapter.startDiscovery();
+        } catch (SecurityException e) {
+            lastStatus = "Bluetooth taraması için BLUETOOTH_SCAN izni gerekli.";
+            return false;
+        }
+    }
+
+    void stopDiscovery() {
+        if (adapter == null) return;
+        try {
+            if (adapter.isDiscovering()) adapter.cancelDiscovery();
+        } catch (SecurityException ignored) {
+            // Status is updated by start/connect paths where the user can act on it.
+        }
+    }
+
+    boolean connect(BluetoothDevice device) {
+        if (device == null) {
+            lastStatus = "Önce bir Bluetooth cihazı seç.";
+            return false;
+        }
+        if (hidDevice == null || !appRegistered) {
+            lastStatus = privilegedMessage();
+            return false;
+        }
+        try {
+            boolean started = hidDevice.connect(device);
+            lastStatus = started ? "Bağlanma isteği gönderildi: " + safeName(device) : "Bağlanma başlatılamadı.";
+            return started;
+        } catch (SecurityException e) {
+            lastStatus = privilegedMessage();
             return false;
         }
     }
 
     String status() {
-        return hidDevice == null
-                ? "Bluetooth HID Device API requires a privileged/system app signature on most Android builds. Root alone is not enough unless you install as a privileged app or use a custom ROM."
-                : "Bluetooth HID profile proxy opened. Pair from the target device, then send keyboard/mouse reports.";
+        if (hidDevice == null) return lastStatus;
+        return appRegistered ? lastStatus : privilegedMessage();
+    }
+
+    static String safeName(BluetoothDevice device) {
+        try {
+            String name = device.getName();
+            return name == null || name.trim().isEmpty() ? device.getAddress() : name + " (" + device.getAddress() + ")";
+        } catch (SecurityException e) {
+            return "izin gerekli";
+        }
+    }
+
+    private void registerApp() {
+        if (hidDevice == null) return;
+        BluetoothHidDeviceAppSdpSettings sdp = new BluetoothHidDeviceAppSdpSettings(
+                "Root HID Remote", "Android keyboard and mouse", "RootHidRemote", (byte) 0xC0,
+                combinedDescriptor());
+        try {
+            hidDevice.registerApp(sdp, null, null, executor, new BluetoothHidDevice.Callback() {
+                @Override public void onAppStatusChanged(BluetoothDevice pluggedDevice, boolean registered) {
+                    appRegistered = registered;
+                    lastStatus = registered ? "Bluetooth HID uygulaması kayıtlı. Cihaz seçip bağlanabilirsin." : privilegedMessage();
+                }
+                @Override public void onConnectionStateChanged(BluetoothDevice device, int state) {
+                    lastStatus = "Bluetooth HID durumu: " + state + " / " + safeName(device);
+                }
+            });
+        } catch (SecurityException e) {
+            appRegistered = false;
+            lastStatus = privilegedMessage();
+        }
+    }
+
+    private static byte[] combinedDescriptor() {
+        byte[] keyboard = HidReport.KEYBOARD_DESCRIPTOR;
+        byte[] mouse = HidReport.MOUSE_DESCRIPTOR;
+        byte[] combined = new byte[keyboard.length + mouse.length];
+        System.arraycopy(keyboard, 0, combined, 0, keyboard.length);
+        System.arraycopy(mouse, 0, combined, keyboard.length, mouse.length);
+        return combined;
+    }
+
+    private static String privilegedMessage() {
+        return "Bluetooth HID bağlanma çoğu ROM'da BLUETOOTH_PRIVILEGED/system app ister. Root varsa APK'yı privileged kur veya izni ROM tarafında ver.";
     }
 }
