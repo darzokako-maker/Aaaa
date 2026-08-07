@@ -5,6 +5,7 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.content.pm.PackageManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -34,6 +35,7 @@ public class MainActivity extends Activity {
     private final List<BluetoothDevice> discoveredDevices = new ArrayList<>();
     
     private TextView status;
+    private boolean bluetoothReceiverRegistered;
     private float lastX, lastY;
 
     private final BroadcastReceiver bluetoothReceiver = new BroadcastReceiver() {
@@ -43,10 +45,10 @@ public class MainActivity extends Activity {
             String action = intent.getAction();
             if (BluetoothDevice.ACTION_FOUND.equals(action)) {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                if (device != null && !discoveredDevices.contains(device)) {
+                if (device != null && !discoveredDevices.contains(device) && hasBluetoothRuntimePermissions()) {
                     discoveredDevices.add(device);
-                    String name = device.getName() != null ? device.getName() : "Bilinmeyen Cihaz";
-                    deviceListAdapter.add(name + "\n" + device.getAddress());
+                    String name = bluetoothDeviceName(device);
+                    deviceListAdapter.add(name + "\n" + bluetoothDeviceAddress(device));
                     deviceListAdapter.notifyDataSetChanged();
                 }
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
@@ -58,20 +60,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        if (Build.VERSION.SDK_INT >= 31) {
-            requestPermissions(new String[]{
-                Manifest.permission.BLUETOOTH_CONNECT, 
-                Manifest.permission.BLUETOOTH_SCAN, 
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            }, 10);
-        } else {
-            requestPermissions(new String[]{
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            }, 10);
-        }
+        requestBluetoothRuntimePermissions();
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
@@ -105,7 +94,7 @@ public class MainActivity extends Activity {
                 BluetoothDevice selectedDevice = discoveredDevices.get(position);
                 new Thread(() -> {
                     boolean connected = bluetoothBackend.connectDevice(selectedDevice);
-                    runOnUiThread(() -> Toast.makeText(this, (connected ? "Bağlantı kuruluyor: " : "Bağlantı başarısız: ") + selectedDevice.getAddress(), Toast.LENGTH_SHORT).show());
+                    runOnUiThread(() -> Toast.makeText(this, (connected ? "Bağlantı kuruluyor: " : "Bağlantı başarısız: ") + bluetoothDeviceAddress(selectedDevice), Toast.LENGTH_SHORT).show());
                 }).start();
             }
         });
@@ -118,6 +107,7 @@ public class MainActivity extends Activity {
         filter.addAction(BluetoothDevice.ACTION_FOUND);
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
         registerReceiver(bluetoothReceiver, filter);
+        bluetoothReceiverRegistered = true;
 
         refreshStatus();
     }
@@ -128,24 +118,83 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Lütfen Bluetooth'u açın", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (!hasBluetoothRuntimePermissions()) {
+            Toast.makeText(this, "Bluetooth taraması için izin verin", Toast.LENGTH_LONG).show();
+            requestBluetoothRuntimePermissions();
+            return;
+        }
 
         discoveredDevices.clear();
         deviceListAdapter.clear();
 
-        Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
+        Set<BluetoothDevice> pairedDevices;
+        try {
+            pairedDevices = bluetoothAdapter.getBondedDevices();
+        } catch (SecurityException missingPermission) {
+            Toast.makeText(this, "Bluetooth cihaz listesi için izin eksik", Toast.LENGTH_LONG).show();
+            return;
+        }
         if (pairedDevices != null && !pairedDevices.isEmpty()) {
             for (BluetoothDevice device : pairedDevices) {
                 discoveredDevices.add(device);
-                String name = device.getName() != null ? device.getName() : "Bilinmeyen Cihaz";
-                deviceListAdapter.add("[Eşleşmiş] " + name + "\n" + device.getAddress());
+                String name = bluetoothDeviceName(device);
+                deviceListAdapter.add("[Eşleşmiş] " + name + "\n" + bluetoothDeviceAddress(device));
             }
         }
 
         if (bluetoothAdapter.isDiscovering()) {
             bluetoothAdapter.cancelDiscovery();
         }
-        bluetoothAdapter.startDiscovery();
-        Toast.makeText(this, "Tarama başlatıldı...", Toast.LENGTH_SHORT).show();
+        try {
+            if (bluetoothAdapter.startDiscovery()) {
+                Toast.makeText(this, "Tarama başlatıldı...", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Tarama başlatılamadı", Toast.LENGTH_LONG).show();
+            }
+        } catch (SecurityException missingPermission) {
+            Toast.makeText(this, "Bluetooth taraması için izin eksik", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private boolean hasBluetoothRuntimePermissions() {
+        if (Build.VERSION.SDK_INT >= 31) {
+            return checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+                    && checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED;
+        }
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void requestBluetoothRuntimePermissions() {
+        if (Build.VERSION.SDK_INT >= 31) {
+            requestPermissions(new String[]{
+                    Manifest.permission.BLUETOOTH_CONNECT,
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_ADVERTISE
+            }, 10);
+        } else {
+            requestPermissions(new String[]{
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+            }, 10);
+        }
+    }
+
+    private String bluetoothDeviceName(BluetoothDevice device) {
+        try {
+            String name = device.getName();
+            return name != null ? name : "Bilinmeyen Cihaz";
+        } catch (SecurityException missingPermission) {
+            return "Bilinmeyen Cihaz";
+        }
+    }
+
+    private String bluetoothDeviceAddress(BluetoothDevice device) {
+        try {
+            return device.getAddress();
+        } catch (SecurityException missingPermission) {
+            return "Adres izni yok";
+        }
     }
 
     private void refreshStatus() {
@@ -177,7 +226,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        try { unregisterReceiver(bluetoothReceiver); } catch (Exception ignored) {}
+        if (bluetoothReceiverRegistered) {
+            try { unregisterReceiver(bluetoothReceiver); } catch (Exception ignored) {}
+            bluetoothReceiverRegistered = false;
+        }
     }
 
     private interface HidAction { void run() throws Exception; }
