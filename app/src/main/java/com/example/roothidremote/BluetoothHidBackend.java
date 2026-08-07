@@ -1,56 +1,31 @@
 package com.example.roothidremote;
 
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.Locale;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothHidDevice;
+import android.bluetooth.BluetoothProfile;
+import android.content.Context;
+import android.os.Build;
 
-final class RootHidBackend {
-    private final String keyboardPath;
-    private final String mousePath;
+final class BluetoothHidBackend {
+    private BluetoothHidDevice hidDevice;
 
-    RootHidBackend(String keyboardPath, String mousePath) {
-        this.keyboardPath = keyboardPath;
-        this.mousePath = mousePath;
-    }
-
-    boolean canUseRoot() {
+    boolean isSupported(Context context) {
+        if (Build.VERSION.SDK_INT < 28) return false;
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) return false;
         try {
-            Process p = new ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start();
-            return p.waitFor() == 0;
-        } catch (Exception ignored) {
+            return adapter.getProfileProxy(context, new BluetoothProfile.ServiceListener() {
+                @Override public void onServiceConnected(int profile, BluetoothProfile proxy) { if (proxy instanceof BluetoothHidDevice) hidDevice = (BluetoothHidDevice) proxy; }
+                @Override public void onServiceDisconnected(int profile) { hidDevice = null; }
+            }, BluetoothProfile.HID_DEVICE);
+        } catch (SecurityException privilegedMissing) {
             return false;
         }
     }
 
-    void sendText(String text) throws IOException, InterruptedException {
-        for (char c : text.toCharArray()) {
-            writeHex(keyboardPath, HidReport.keyboard(c, true));
-            writeHex(keyboardPath, HidReport.keyboard(c, false));
-        }
-    }
-
-    void moveMouse(int dx, int dy) throws IOException, InterruptedException {
-        writeHex(mousePath, HidReport.mouse(0, dx, dy, 0));
-    }
-
-    void click(int buttonMask) throws IOException, InterruptedException {
-        writeHex(mousePath, HidReport.mouse(buttonMask, 0, 0, 0));
-        writeHex(mousePath, HidReport.mouse(0, 0, 0, 0));
-    }
-
-    private void writeHex(String device, byte[] bytes) throws IOException, InterruptedException {
-        StringBuilder hex = new StringBuilder();
-        for (byte b : bytes) hex.append(String.format(Locale.US, "\\x%02x", b & 0xff));
-        String command = "printf '" + hex + "' > " + shellQuote(device);
-        Process process = Runtime.getRuntime().exec("su");
-        try (DataOutputStream os = new DataOutputStream(process.getOutputStream())) {
-            os.writeBytes(command + "\nexit\n");
-        }
-        int code = process.waitFor();
-        if (code != 0) throw new IOException("su write failed with exit " + code);
-    }
-
-    private static String shellQuote(String value) {
-        return "'" + value.replace("'", "'\\''") + "'";
+    String status() {
+        return hidDevice == null
+                ? "Bluetooth HID Device API requires a privileged/system app signature on most Android builds. Root alone is not enough unless you install as a privileged app or use a custom ROM."
+                : "Bluetooth HID profile proxy opened. Pair from the target device, then send keyboard/mouse reports.";
     }
 }
