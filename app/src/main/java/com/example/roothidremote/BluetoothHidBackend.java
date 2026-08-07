@@ -18,6 +18,7 @@ final class BluetoothHidBackend {
     private final Executor executor = Executors.newSingleThreadExecutor();
     private BluetoothAdapter adapter;
     private BluetoothHidDevice hidDevice;
+    private BluetoothDevice connectedDevice;
     private boolean appRegistered;
     private String lastStatus = "Bluetooth hazır değil.";
 
@@ -42,6 +43,7 @@ final class BluetoothHidBackend {
                 @Override public void onServiceDisconnected(int profile) {
                     if (profile == BluetoothProfile.HID_DEVICE) {
                         hidDevice = null;
+                        connectedDevice = null;
                         appRegistered = false;
                         lastStatus = "Bluetooth HID profili kapandı.";
                     }
@@ -104,6 +106,26 @@ final class BluetoothHidBackend {
         }
     }
 
+    boolean isConnected() {
+        return hidDevice != null && connectedDevice != null;
+    }
+
+    void sendText(String text) {
+        for (char c : text.toCharArray()) {
+            sendKeyboardReport(HidReport.keyboard(c, true));
+            sendKeyboardReport(HidReport.keyboard(c, false));
+        }
+    }
+
+    void moveMouse(int dx, int dy) {
+        sendMouseReport(HidReport.mouse(0, dx, dy, 0));
+    }
+
+    void click(int buttonMask) {
+        sendMouseReport(HidReport.mouse(buttonMask, 0, 0, 0));
+        sendMouseReport(HidReport.mouse(0, 0, 0, 0));
+    }
+
     String status() {
         if (hidDevice == null) return lastStatus;
         return appRegistered ? lastStatus : privilegedMessage();
@@ -130,6 +152,8 @@ final class BluetoothHidBackend {
                     lastStatus = registered ? "Bluetooth HID uygulaması kayıtlı. Cihaz seçip bağlanabilirsin." : privilegedMessage();
                 }
                 @Override public void onConnectionStateChanged(BluetoothDevice device, int state) {
+                    if (state == BluetoothProfile.STATE_CONNECTED) connectedDevice = device;
+                    if (state == BluetoothProfile.STATE_DISCONNECTED && connectedDevice != null && connectedDevice.equals(device)) connectedDevice = null;
                     lastStatus = "Bluetooth HID durumu: " + state + " / " + safeName(device);
                 }
             });
@@ -140,12 +164,27 @@ final class BluetoothHidBackend {
     }
 
     private static byte[] combinedDescriptor() {
-        byte[] keyboard = HidReport.KEYBOARD_DESCRIPTOR;
-        byte[] mouse = HidReport.MOUSE_DESCRIPTOR;
-        byte[] combined = new byte[keyboard.length + mouse.length];
-        System.arraycopy(keyboard, 0, combined, 0, keyboard.length);
-        System.arraycopy(mouse, 0, combined, keyboard.length, mouse.length);
-        return combined;
+        return HidReport.BLUETOOTH_DESCRIPTOR;
+    }
+
+    private void sendKeyboardReport(byte[] report) {
+        sendReport(1, report);
+    }
+
+    private void sendMouseReport(byte[] report) {
+        sendReport(2, report);
+    }
+
+    private void sendReport(int reportId, byte[] report) {
+        if (!isConnected()) {
+            lastStatus = "Bluetooth HID bağlı değil; önce cihaz seçip bağlan.";
+            return;
+        }
+        try {
+            hidDevice.sendReport(connectedDevice, reportId, report);
+        } catch (SecurityException e) {
+            lastStatus = privilegedMessage();
+        }
     }
 
     private static String privilegedMessage() {

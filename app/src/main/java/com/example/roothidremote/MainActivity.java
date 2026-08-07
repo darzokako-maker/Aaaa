@@ -69,8 +69,8 @@ public class MainActivity extends Activity {
         scan.setOnClickListener(v -> scanBluetoothDevices());
         devices.setOnItemClickListener((parent, view, position, id) -> selectBluetoothDevice(position));
         connect.setOnClickListener(v -> connectSelectedBluetoothDevice());
-        send.setOnClickListener(v -> runRoot(() -> rootBackend.sendText(text.getText().toString())));
-        right.setOnClickListener(v -> runRoot(() -> rootBackend.click(2)));
+        send.setOnClickListener(v -> runHid(() -> rootBackend.sendText(text.getText().toString()), () -> bluetoothBackend.sendText(text.getText().toString()), true));
+        right.setOnClickListener(v -> runHid(() -> rootBackend.click(2), () -> bluetoothBackend.click(2), true));
         pad.setOnTouchListener((v, event) -> handleTouch(event));
         refreshStatus();
         scanBluetoothDevices();
@@ -88,6 +88,7 @@ public class MainActivity extends Activity {
         status.setText("Root: " + (rootOk ? "var" : "yok")
                 + "\nBluetooth HID: " + (btOk ? "hazırlanıyor" : "kapalı/izin yok")
                 + "\nSeçili cihaz: " + (selectedDevice == null ? "yok" : BluetoothHidBackend.safeName(selectedDevice))
+                + "\nAktif çıkış: " + (bluetoothBackend.isConnected() ? "Bluetooth HID" : "root /dev/hidg")
                 + "\n" + bluetoothBackend.status()
                 + "\nUSB gadget yolları: /dev/hidg0 klavye, /dev/hidg1 mouse");
     }
@@ -130,9 +131,9 @@ public class MainActivity extends Activity {
         if (event.getAction() == MotionEvent.ACTION_DOWN) { lastX = event.getX(); lastY = event.getY(); return true; }
         if (event.getAction() == MotionEvent.ACTION_MOVE) {
             int dx = Math.round((event.getX() - lastX) / 2f); int dy = Math.round((event.getY() - lastY) / 2f);
-            lastX = event.getX(); lastY = event.getY(); runRoot(() -> rootBackend.moveMouse(dx, dy)); return true;
+            lastX = event.getX(); lastY = event.getY(); runHid(() -> rootBackend.moveMouse(dx, dy), () -> bluetoothBackend.moveMouse(dx, dy), false); return true;
         }
-        if (event.getAction() == MotionEvent.ACTION_UP) { runRoot(() -> rootBackend.click(1)); return true; }
+        if (event.getAction() == MotionEvent.ACTION_UP) { runHid(() -> rootBackend.click(1), () -> bluetoothBackend.click(1), false); return true; }
         return true;
     }
 
@@ -148,10 +149,18 @@ public class MainActivity extends Activity {
     private Button button(String value) { Button b = new Button(this); b.setText(value); return b; }
     private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show(); }
 
-    private void runRoot(HidAction action) {
+    private void runHid(HidAction rootAction, HidAction bluetoothAction, boolean showSuccess) {
         new Thread(() -> {
-            try { action.run(); runOnUiThread(() -> toast("Gönderildi")); }
-            catch (Exception e) { runOnUiThread(() -> Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show()); }
+            try {
+                if (bluetoothBackend.isConnected()) {
+                    bluetoothAction.run();
+                } else {
+                    rootAction.run();
+                }
+                if (showSuccess) runOnUiThread(() -> toast("Gönderildi"));
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show());
+            }
         }).start();
     }
     private interface HidAction { void run() throws Exception; }

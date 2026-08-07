@@ -21,7 +21,7 @@ Android telefondan başka bir cihaza klavye ve mouse HID raporları göndermek i
 3. Uygulamada **Bluetooth / root durumunu kontrol et** butonuna bas.
 4. Bluetooth için **Bluetooth cihazlarını tara / yenile** ile cihazları listele, listeden hedefi seç ve **Seçili Bluetooth cihaza bağlan** butonuna bas.
 5. USB için hedef cihaza kabloyla bağlan; Bluetooth için privileged HID destekliyorsa eşleştirme/bağlanma isteğini hedef cihazda onayla.
-6. Yazı kutusundan klavye, pad alanından mouse gönder.
+6. Bağlantıdan sonra uygulama aktif çıkışı gösterir; Bluetooth bağlıysa yazı ve mouse pad Bluetooth HID üzerinden, bağlı değilse root `/dev/hidg*` üzerinden gönderilir.
 
 ## Derleme
 
