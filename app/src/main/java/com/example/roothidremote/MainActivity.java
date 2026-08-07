@@ -81,9 +81,11 @@ public class MainActivity extends Activity {
         root.addView(deviceListView);
 
         EditText text = new EditText(this); text.setHint("Klavye ile gönderilecek yazı"); root.addView(text);
-        Button send = button("Yazıyı gönder"); root.addView(send);
+        Button send = button("USB/root ile yazıyı gönder"); root.addView(send);
+        Button sendBt = button("Bluetooth ile yazıyı gönder"); root.addView(sendBt);
         TextView pad = label("Mouse pad: burada sürükle\nSol tık için dokun"); pad.setMinHeight(420); pad.setTextSize(20); root.addView(pad);
-        Button right = button("Sağ tık"); root.addView(right);
+        Button right = button("USB/root sağ tık"); root.addView(right);
+        Button rightBt = button("Bluetooth sağ tık"); root.addView(rightBt);
         
         scrollView.addView(root);
         setContentView(scrollView);
@@ -103,7 +105,9 @@ public class MainActivity extends Activity {
         });
 
         send.setOnClickListener(v -> runRoot(() -> rootBackend.sendText(text.getText().toString())));
+        sendBt.setOnClickListener(v -> runBluetoothSignal(() -> bluetoothBackend.sendText(text.getText().toString())));
         right.setOnClickListener(v -> runRoot(() -> rootBackend.click(2)));
+        rightBt.setOnClickListener(v -> runBluetoothSignal(() -> bluetoothBackend.click(2)));
         pad.setOnTouchListener((v, event) -> handleTouch(event));
 
         IntentFilter filter = new IntentFilter();
@@ -227,9 +231,16 @@ public class MainActivity extends Activity {
         if (event.getAction() == MotionEvent.ACTION_DOWN) { lastX = event.getX(); lastY = event.getY(); return true; }
         if (event.getAction() == MotionEvent.ACTION_MOVE) {
             int dx = Math.round((event.getX() - lastX) / 2f); int dy = Math.round((event.getY() - lastY) / 2f);
-            lastX = event.getX(); lastY = event.getY(); runRoot(() -> rootBackend.moveMouse(dx, dy)); return true;
+            lastX = event.getX(); lastY = event.getY();
+            runRoot(() -> rootBackend.moveMouse(dx, dy));
+            runBluetoothSignal(() -> bluetoothBackend.moveMouse(dx, dy));
+            return true;
         }
-        if (event.getAction() == MotionEvent.ACTION_UP) { runRoot(() -> rootBackend.click(1)); return true; }
+        if (event.getAction() == MotionEvent.ACTION_UP) {
+            runRoot(() -> rootBackend.click(1));
+            runBluetoothSignal(() -> bluetoothBackend.click(1));
+            return true;
+        }
         return true;
     }
 
@@ -243,6 +254,15 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private void runBluetoothSignal(BluetoothSignalAction action) {
+        new Thread(() -> {
+            boolean sent = action.run();
+            if (!sent) {
+                runOnUiThread(() -> Toast.makeText(this, bluetoothBackend.status(), Toast.LENGTH_LONG).show());
+            }
+        }).start();
+    }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -253,4 +273,5 @@ public class MainActivity extends Activity {
     }
 
     private interface HidAction { void run() throws Exception; }
+    private interface BluetoothSignalAction { boolean run(); }
 }

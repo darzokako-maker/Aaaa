@@ -13,6 +13,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 final class BluetoothHidBackend {
+    private static final int KEYBOARD_REPORT_ID = 1;
+    private static final int MOUSE_REPORT_ID = 2;
     private final Executor callbackExecutor = Executors.newSingleThreadExecutor();
     private BluetoothAdapter adapter;
     private BluetoothHidDevice hidDevice;
@@ -109,6 +111,29 @@ final class BluetoothHidBackend {
         }
     }
 
+    @SuppressLint("MissingPermission")
+    boolean sendText(String text) {
+        if (text == null) text = "";
+        for (char c : text.toCharArray()) {
+            if (!sendKeyboardReport(HidReport.keyboard(c, true))) return false;
+            sleepBetweenReports();
+            if (!sendKeyboardReport(HidReport.keyboard(c, false))) return false;
+            sleepBetweenReports();
+        }
+        lastStatus = "Bluetooth klavye raporları gönderildi.";
+        return true;
+    }
+
+    boolean moveMouse(int dx, int dy) {
+        return sendMouseReport(HidReport.mouse(0, dx, dy, 0), "Bluetooth mouse hareketi gönderildi.");
+    }
+
+    boolean click(int buttonMask) {
+        if (!sendMouseReport(HidReport.mouse(buttonMask, 0, 0, 0), "Bluetooth mouse tık basıldı.")) return false;
+        sleepBetweenReports();
+        return sendMouseReport(HidReport.mouse(0, 0, 0, 0), "Bluetooth mouse tık bırakıldı.");
+    }
+
     String status() {
         return lastStatus;
     }
@@ -172,13 +197,57 @@ final class BluetoothHidBackend {
         }
     }
 
+    private boolean sendKeyboardReport(byte[] report) {
+        return sendReport(KEYBOARD_REPORT_ID, report, "Bluetooth klavye raporu gönderildi.");
+    }
+
+    private boolean sendMouseReport(byte[] report, String successStatus) {
+        return sendReport(MOUSE_REPORT_ID, report, successStatus);
+    }
+
+    @SuppressLint("MissingPermission")
+    private boolean sendReport(int reportId, byte[] report, String successStatus) {
+        if (!appRegistered || connectedDevice == null) {
+            lastStatus = "Bluetooth HID bağlı değil. Önce hedef cihaza bağlanın.";
+            return false;
+        }
+        try {
+            boolean commandSent = hidDevice.sendReport(connectedDevice, reportId, report);
+            lastStatus = commandSent ? successStatus : "Bluetooth HID raporu gönderilemedi.";
+            return commandSent;
+        } catch (SecurityException missingPermission) {
+            lastStatus = "Bluetooth raporu göndermek için BLUETOOTH_CONNECT izni eksik.";
+            return false;
+        } catch (Exception e) {
+            lastStatus = "Bluetooth rapor gönderme hatası: " + e.getMessage();
+            return false;
+        }
+    }
+
+    private void sleepBetweenReports() {
+        try {
+            Thread.sleep(8);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private byte[] combinedDescriptor() {
-        byte[] keyboard = HidReport.KEYBOARD_DESCRIPTOR;
-        byte[] mouse = HidReport.MOUSE_DESCRIPTOR;
+        byte[] keyboard = withReportId(HidReport.KEYBOARD_DESCRIPTOR, KEYBOARD_REPORT_ID);
+        byte[] mouse = withReportId(HidReport.MOUSE_DESCRIPTOR, MOUSE_REPORT_ID);
         byte[] combined = new byte[keyboard.length + mouse.length];
         System.arraycopy(keyboard, 0, combined, 0, keyboard.length);
         System.arraycopy(mouse, 0, combined, keyboard.length, mouse.length);
         return combined;
+    }
+
+    private byte[] withReportId(byte[] descriptor, int reportId) {
+        byte[] withId = new byte[descriptor.length + 2];
+        System.arraycopy(descriptor, 0, withId, 0, 6);
+        withId[6] = (byte) 0x85;
+        withId[7] = (byte) reportId;
+        System.arraycopy(descriptor, 6, withId, 8, descriptor.length - 6);
+        return withId;
     }
 
     private String safeAddress(BluetoothDevice device) {
