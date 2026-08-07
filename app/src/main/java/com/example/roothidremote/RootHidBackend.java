@@ -1,6 +1,13 @@
 package com.example.roothidremote;
 
+import android.content.Context;
+
+import java.io.BufferedReader;
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.io.IOException;
 import java.util.Locale;
 
@@ -36,6 +43,42 @@ final class RootHidBackend {
     void click(int buttonMask) throws IOException, InterruptedException {
         writeHex(mousePath, HidReport.mouse(buttonMask, 0, 0, 0));
         writeHex(mousePath, HidReport.mouse(0, 0, 0, 0));
+    }
+
+    String runPythonScript(Context context, String script) {
+        if (script == null || script.trim().isEmpty()) {
+            return "Çalıştırılacak Python script boş.";
+        }
+        File scriptFile = new File(context.getCacheDir(), "user_script.py");
+        try (FileOutputStream outputStream = new FileOutputStream(scriptFile)) {
+            outputStream.write(script.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            return "Script dosyası yazılamadı: " + e.getMessage();
+        }
+
+        String command = "PY=$(command -v python3 || command -v python); "
+                + "if [ -z \"$PY\" ]; then echo 'python3 veya python bulunamadı'; exit 127; fi; "
+                + "\"$PY\" " + shellQuote(scriptFile.getAbsolutePath());
+        try {
+            Process process = new ProcessBuilder("su", "-c", command).redirectErrorStream(true).start();
+            String output = readProcessOutput(process);
+            int code = process.waitFor();
+            if (output.trim().isEmpty()) output = "(çıktı yok)";
+            return "Çıkış kodu: " + code + "\n" + output;
+        } catch (Exception e) {
+            return "Python script çalıştırılamadı: " + e.getMessage();
+        }
+    }
+
+    private String readProcessOutput(Process process) throws IOException {
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append('\n');
+            }
+        }
+        return output.toString();
     }
 
     private void writeHex(String device, byte[] bytes) throws IOException, InterruptedException {

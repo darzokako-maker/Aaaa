@@ -30,7 +30,7 @@ final class HidReport {
     static {
         for (char c = 'a'; c <= 'z'; c++) add(c, 0, 4 + c - 'a');
         for (char c = '1'; c <= '9'; c++) add(c, 0, 30 + c - '1');
-        add('0', 0, 39); add('\n', 0, 40); add('\t', 0, 43); add(' ', 0, 44);
+        add('0', 0, 39); add('\n', 0, 40); add('\r', 0, 40); add('\t', 0, 43); add(' ', 0, 44);
         add('-', 0, 45); add('_', 2, 45); add('=', 0, 46); add('+', 2, 46);
         add('[', 0, 47); add('{', 2, 47); add(']', 0, 48); add('}', 2, 48);
         add('\\', 0, 49); add('|', 2, 49); add(';', 0, 51); add(':', 2, 51);
@@ -44,8 +44,12 @@ final class HidReport {
 
     static byte[] keyboard(char c, boolean down) {
         Key key = KEYS.get(Character.toLowerCase(c));
-        if (key == null) key = KEYS.get(' ');
-        int modifier = Character.isUpperCase(c) ? 0x02 : key.modifier;
+        boolean uppercaseLetter = Character.isUpperCase(c);
+        if (key == null) {
+            key = KEYS.get(' ');
+            uppercaseLetter = false;
+        }
+        int modifier = uppercaseLetter ? 0x02 : key.modifier;
         return down ? new byte[]{(byte) modifier, (byte) 0, (byte) key.code, (byte) 0, (byte) 0, (byte) 0, (byte) 0, (byte) 0} : new byte[8];
     }
 
