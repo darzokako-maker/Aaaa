@@ -30,12 +30,16 @@ final class BluetoothHidBackend {
     @SuppressLint("MissingPermission")
     boolean connectDevice(BluetoothDevice device) {
         if (hidDevice == null || device == null) return false;
-        return hidDevice.connect(device);
+        try {
+            return hidDevice.connect(device);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     String status() {
         return hidDevice == null
-                ? "Bluetooth HID Device API kısıtlı. Sistem/Privileged izin gerekir."
-                : "Bluetooth HID aktif. Hedef cihazı listeden seçip bağlanın.";
+                ? "Bluetooth HID Device API kısıtlı. (Sistem/Privileged izni gerekir)"
+                : "Bluetooth HID profili açık. Hedef cihazla eşleşip bağlantı kurabilirsiniz.";
     }
 }
