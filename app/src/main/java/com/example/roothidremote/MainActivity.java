@@ -1,103 +1,221 @@
 package com.example.roothidremote;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
-import android.os.Bundle;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Build;
-import android.view.Gravity;
+import android.os.Bundle;
 import android.view.MotionEvent;
-import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 public class MainActivity extends Activity {
     private final RootHidBackend rootBackend = new RootHidBackend("/dev/hidg0", "/dev/hidg1");
     private final BluetoothHidBackend bluetoothBackend = new BluetoothHidBackend();
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    
+    private BluetoothAdapter bluetoothAdapter;
+    private ArrayAdapter<String> deviceListAdapter;
+    private final List<BluetoothDevice> discoveredDevices = new ArrayList<>();
+    
     private TextView status;
     private float lastX, lastY;
 
+    private final BroadcastReceiver bluetoothReceiver = new BroadcastReceiver() {
+        @SuppressLint("MissingPermission")
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                if (device != null && device.getName() != null && !discoveredDevices.contains(device)) {
+                    discoveredDevices.add(device);
+                    deviceListAdapter.add(device.getName() + "\n" + device.getAddress());
+                    deviceListAdapter.notifyDataSetChanged();
+                }
+            }
+        }
+    };
+
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (Build.VERSION.SDK_INT >= 31) requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE}, 10);
+        requestPermissionsIfNeccessary();
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
+        ScrollView scrollView = new ScrollView(this);
+        LinearLayout root = new LinearLayout(this); 
+        root.setOrientation(LinearLayout.VERTICAL); 
         root.setPadding(32, 32, 32, 32);
-        root.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        status = label("Hazır"); addFullWidth(root, status, 0, 0, 0, 16);
-        Button check = button("Bluetooth / root durumunu kontrol et"); addFullWidth(root, check, 0, 0, 0, 24);
+        status = label("Hazır"); 
+        root.addView(status);
 
-        EditText text = new EditText(this);
-        text.setHint("Klavye ile gönderilecek yazı");
-        addFullWidth(root, text, 0, 0, 0, 12);
-        Button send = button("Yazıyı gönder"); addFullWidth(root, send, 0, 0, 0, 24);
+        Button check = button("Bluetooth / Root Durumunu Kontrol Et"); 
+        root.addView(check);
 
-        TextView pad = label("Mouse pad: burada sürükle\nSol tık için dokun");
-        pad.setMinHeight(420);
-        pad.setTextSize(20);
-        pad.setGravity(Gravity.CENTER);
-        pad.setBackground(padBackground());
-        addFullWidth(root, pad, 0, 0, 0, 24);
+        Button scanBt = button("Bluetooth Cihazları Tara");
+        root.addView(scanBt);
 
-        Button right = button("Sağ tık"); addFullWidth(root, right, 0, 0, 0, 32);
+        deviceListAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
+        ListView deviceListView = new ListView(this);
+        deviceListView.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 300));
+        deviceListView.setAdapter(deviceListAdapter);
+        root.addView(deviceListView);
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.addView(root, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        setContentView(scroll);
+        EditText text = new EditText(this); 
+        text.setHint("Klavye ile gönderilecek yazı"); 
+        root.addView(text);
+
+        Button send = button("Yazıyı gönder"); 
+        root.addView(send);
+
+        TextView pad = label("Mouse Pad: Sürükle / Sol tık için dokun"); 
+        pad.setMinHeight(350); 
+        pad.setTextSize(18); 
+        root.addView(pad);
+
+        Button right = button("Sağ tık"); 
+        root.addView(right);
+
+        scrollView.addView(root);
+        setContentView(scrollView);
 
         check.setOnClickListener(v -> refreshStatus());
-        send.setOnClickListener(v -> runRoot(() -> rootBackend.sendText(text.getText().toString())));
-        right.setOnClickListener(v -> runRoot(() -> rootBackend.click(2)));
+        scanBt.setOnClickListener(v -> startBluetoothScan());
+        
+        deviceListView.setOnItemClickListener((parent, view, position, id) -> {
+            BluetoothDevice selectedDevice = discoveredDevices.get(position);
+            boolean connected = bluetoothBackend.connectDevice(selectedDevice);
+            Toast.makeText(this, (connected ? "Bağlanıyor: " : "Bağlantı Başarısız: ") + selectedDevice.getName(), Toast.LENGTH_SHORT).show();
+        });
+
+        send.setOnClickListener(v -> runRoot(() -> rootBackend.sendText(text.getText().toString()), true));
+        right.setOnClickListener(v -> runRoot(() -> rootBackend.click(2), false));
         pad.setOnTouchListener((v, event) -> handleTouch(event));
+
+        IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
+        registerReceiver(bluetoothReceiver, filter);
+
         refreshStatus();
     }
 
-    private void addFullWidth(LinearLayout parent, android.view.View view, int left, int top, int right, int bottom) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(left, top, right, bottom);
-        parent.addView(view, params);
+    private void requestPermissionsIfNeccessary() {
+        if (Build.VERSION.SDK_INT >= 31) {
+            requestPermissions(new String[]{
+                Manifest.permission.BLUETOOTH_CONNECT, 
+                Manifest.permission.BLUETOOTH_SCAN, 
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            }, 10);
+        } else {
+            requestPermissions(new String[]{
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            }, 10);
+        }
     }
 
-    private GradientDrawable padBackground() {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.parseColor("#F1F5F9"));
-        drawable.setCornerRadius(24f);
-        drawable.setStroke(2, Color.parseColor("#CBD5E1"));
-        return drawable;
+    @SuppressLint("MissingPermission")
+    private void startBluetoothScan() {
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
+            Toast.makeText(this, "Lütfen Bluetooth'u açın", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        discoveredDevices.clear();
+        deviceListAdapter.clear();
+        if (bluetoothAdapter.isDiscovering()) {
+            bluetoothAdapter.cancelDiscovery();
+        }
+        bluetoothAdapter.startDiscovery();
+        Toast.makeText(this, "Cihazlar taranıyor...", Toast.LENGTH_SHORT).show();
     }
 
     private void refreshStatus() {
         boolean rootOk = rootBackend.canUseRoot();
         boolean btOk = bluetoothBackend.isSupported(this);
-        status.setText("Root: " + (rootOk ? "var" : "yok") + "\nBluetooth HID: " + (btOk ? "deneniyor" : "kapalı/izin yok") + "\n" + bluetoothBackend.status() + "\nUSB gadget yolları: /dev/hidg0 klavye, /dev/hidg1 mouse");
+        status.setText("Root: " + (rootOk ? "Var" : "Yok") + 
+                "\nBluetooth HID: " + (btOk ? "Aktif" : "Erişim Yok") + 
+                "\n" + bluetoothBackend.status());
     }
 
     private boolean handleTouch(MotionEvent event) {
-        if (event.getAction() == MotionEvent.ACTION_DOWN) { lastX = event.getX(); lastY = event.getY(); return true; }
-        if (event.getAction() == MotionEvent.ACTION_MOVE) {
-            int dx = Math.round((event.getX() - lastX) / 2f); int dy = Math.round((event.getY() - lastY) / 2f);
-            lastX = event.getX(); lastY = event.getY(); runRoot(() -> rootBackend.moveMouse(dx, dy)); return true;
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                lastX = event.getX();
+                lastY = event.getY();
+                return true;
+
+            case MotionEvent.ACTION_MOVE:
+                float deltaX = event.getX() - lastX;
+                float deltaY = event.getY() - lastY;
+                int dx = Math.round(deltaX);
+                int dy = Math.round(deltaY);
+
+                if (dx != 0 || dy != 0) {
+                    lastX = event.getX();
+                    lastY = event.getY();
+                    runRoot(() -> rootBackend.moveMouse(dx, dy), false);
+                }
+                return true;
+
+            case MotionEvent.ACTION_UP:
+                runRoot(() -> rootBackend.click(1), false);
+                return true;
         }
-        if (event.getAction() == MotionEvent.ACTION_UP) { runRoot(() -> rootBackend.click(1)); return true; }
         return true;
     }
 
-    private TextView label(String value) { TextView view = new TextView(this); view.setText(value); view.setTextSize(16); view.setPadding(0,12,0,12); return view; }
-    private Button button(String value) { Button b = new Button(this); b.setText(value); return b; }
-
-    private void runRoot(HidAction action) {
-        new Thread(() -> {
-            try { action.run(); runOnUiThread(() -> Toast.makeText(this, "Gönderildi", Toast.LENGTH_SHORT).show()); }
-            catch (Exception e) { runOnUiThread(() -> Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show()); }
-        }).start();
+    private TextView label(String value) { 
+        TextView view = new TextView(this); 
+        view.setText(value); 
+        view.setTextSize(16); 
+        view.setPadding(0, 12, 0, 12); 
+        return view; 
     }
+
+    private Button button(String value) { 
+        Button b = new Button(this); 
+        b.setText(value); 
+        return b; 
+    }
+
+    private void runRoot(HidAction action, boolean showToast) {
+        executor.execute(() -> {
+            try { 
+                action.run(); 
+                if (showToast) {
+                    runOnUiThread(() -> Toast.makeText(this, "Gönderildi", Toast.LENGTH_SHORT).show()); 
+                }
+            } catch (Exception e) { 
+                runOnUiThread(() -> Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show()); 
+            }
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        unregisterReceiver(bluetoothReceiver);
+    }
+
     private interface HidAction { void run() throws Exception; }
 }
