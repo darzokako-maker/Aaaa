@@ -31,6 +31,7 @@ import java.util.Set;
 public class MainActivity extends Activity {
     private final RootHidBackend rootBackend = new RootHidBackend("/dev/hidg0", "/dev/hidg1");
     private final BluetoothHidBackend bluetoothBackend = new BluetoothHidBackend();
+    private final SocketHidBackend socketBackend = new SocketHidBackend();
     
     private BluetoothAdapter bluetoothAdapter;
     private ArrayAdapter<String> deviceListAdapter;
@@ -38,8 +39,9 @@ public class MainActivity extends Activity {
     
     private TextView status;
     private static final long MOUSE_FRAME_MS = 16L;
-    private static final float MOUSE_SCALE = 0.65f;
-    private static final float CLICK_MOVE_TOLERANCE = 8f;
+    private static final float MOUSE_SCALE = 0.80f;
+    private static final int MAX_MOUSE_REPORT_DELTA = 60;
+    private static final float CLICK_MOVE_TOLERANCE = 12f;
 
     private final Handler mouseHandler = new Handler(Looper.getMainLooper());
     private boolean bluetoothReceiverRegistered;
@@ -98,12 +100,20 @@ public class MainActivity extends Activity {
         deviceListView.setAdapter(deviceListAdapter);
         root.addView(deviceListView);
 
+        TextView pcTitle = label("PC / Socket Bağlantısı"); pcTitle.setTextSize(18); root.addView(pcTitle);
+        EditText pcHost = new EditText(this); pcHost.setHint("PC IP/host (örn. 192.168.1.10)"); root.addView(pcHost);
+        EditText pcPort = new EditText(this); pcPort.setHint("Socket port (örn. 5050)"); pcPort.setInputType(android.text.InputType.TYPE_CLASS_NUMBER); root.addView(pcPort);
+        Button connectSocket = button("PC socket ile bağlan"); root.addView(connectSocket);
+        TextView socketStatus = label(socketBackend.status()); root.addView(socketStatus);
+
         EditText text = new EditText(this); text.setHint("Klavye ile gönderilecek yazı"); root.addView(text);
         Button send = button("USB/root ile yazıyı gönder"); root.addView(send);
         Button sendBt = button("Bluetooth ile yazıyı gönder"); root.addView(sendBt);
+        Button sendSocket = button("PC/socket ile yazıyı gönder"); root.addView(sendSocket);
         TextView pad = label("Mouse pad: akıcı kontrol için burada sürükle\nKısa dokunma: sol tık • Sürükleme: imleç hareketi"); pad.setMinHeight(560); pad.setTextSize(20); root.addView(pad);
         Button right = button("USB/root sağ tık"); root.addView(right);
         Button rightBt = button("Bluetooth sağ tık"); root.addView(rightBt);
+        Button rightSocket = button("PC/socket sağ tık"); root.addView(rightSocket);
 
         TextView pythonTitle = label("Python Script Alanı"); pythonTitle.setTextSize(18); root.addView(pythonTitle);
         EditText pythonScript = new EditText(this);
@@ -120,6 +130,7 @@ public class MainActivity extends Activity {
         check.setOnClickListener(v -> refreshStatus());
         scanBt.setOnClickListener(v -> startBluetoothScan());
         connectMac.setOnClickListener(v -> connectBluetoothByMac(macAddress.getText().toString()));
+        connectSocket.setOnClickListener(v -> connectSocket(pcHost.getText().toString(), pcPort.getText().toString(), socketStatus));
         
         deviceListView.setOnItemClickListener((parent, view, position, id) -> {
             if (position < discoveredDevices.size()) {
@@ -133,8 +144,10 @@ public class MainActivity extends Activity {
 
         send.setOnClickListener(v -> runRoot(() -> rootBackend.sendText(text.getText().toString())));
         sendBt.setOnClickListener(v -> runBluetoothSignal(() -> bluetoothBackend.sendText(text.getText().toString())));
+        sendSocket.setOnClickListener(v -> runSocketSignal(() -> socketBackend.sendText(text.getText().toString()), socketStatus));
         right.setOnClickListener(v -> runRoot(() -> rootBackend.click(2)));
         rightBt.setOnClickListener(v -> runBluetoothSignal(() -> bluetoothBackend.click(2)));
+        rightSocket.setOnClickListener(v -> runSocketSignal(() -> socketBackend.click(2), socketStatus));
         pad.setOnTouchListener((v, event) -> handleTouch(event));
         runPython.setOnClickListener(v -> runPythonScript(pythonScript.getText().toString(), pythonOutput));
 
@@ -252,7 +265,7 @@ public class MainActivity extends Activity {
     private void refreshStatus() {
         boolean rootOk = rootBackend.canUseRoot();
         boolean btOk = bluetoothBackend.isSupported(this);
-        status.setText("Root: " + (rootOk ? "var" : "yok") + "\nBluetooth HID: " + (btOk ? "deneniyor" : "kapalı/izin yok") + "\n" + bluetoothBackend.status() + "\nUSB gadget yolları: /dev/hidg0 klavye, /dev/hidg1 mouse");
+        status.setText("Root: " + (rootOk ? "var" : "yok") + "\nBluetooth HID: " + (btOk ? "deneniyor" : "kapalı/izin yok") + "\n" + bluetoothBackend.status() + "\n" + socketBackend.status() + "\nUSB gadget yolları: /dev/hidg0 klavye, /dev/hidg1 mouse");
     }
 
     private boolean handleTouch(MotionEvent event) {
@@ -284,6 +297,7 @@ public class MainActivity extends Activity {
             if (!touchMoved) {
                 runRoot(() -> rootBackend.click(1));
                 runBluetoothSignal(() -> bluetoothBackend.click(1));
+                runSocketSignalSilent(() -> socketBackend.click(1));
             }
             return true;
         }
@@ -309,16 +323,25 @@ public class MainActivity extends Activity {
 
     private void dispatchPendingMouseMove() {
         mouseDispatchScheduled = false;
-        int dx = Math.round(pendingMouseX);
-        int dy = Math.round(pendingMouseY);
+        int dx = clampMouseDelta(Math.round(pendingMouseX));
+        int dy = clampMouseDelta(Math.round(pendingMouseY));
         if (dx == 0 && dy == 0) return;
         pendingMouseX -= dx;
         pendingMouseY -= dy;
-        runRoot(() -> rootBackend.moveMouse(dx, dy));
-        runBluetoothSignal(() -> bluetoothBackend.moveMouse(dx, dy));
+        sendMouseMoveToAll(dx, dy);
         if (Math.abs(pendingMouseX) >= 1f || Math.abs(pendingMouseY) >= 1f) {
             scheduleMouseDispatch();
         }
+    }
+
+    private int clampMouseDelta(int value) {
+        return Math.max(-MAX_MOUSE_REPORT_DELTA, Math.min(MAX_MOUSE_REPORT_DELTA, value));
+    }
+
+    private void sendMouseMoveToAll(int dx, int dy) {
+        runRootSilent(() -> rootBackend.moveMouse(dx, dy));
+        runBluetoothSignalSilent(() -> bluetoothBackend.moveMouse(dx, dy));
+        runSocketSignalSilent(() -> socketBackend.moveMouse(dx, dy));
     }
 
     private TextView label(String value) { TextView view = new TextView(this); view.setText(value); view.setTextSize(16); view.setPadding(0,12,0,12); return view; }
@@ -340,6 +363,42 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private void runRootSilent(HidAction action) {
+        new Thread(() -> {
+            try { action.run(); } catch (Exception ignored) {}
+        }).start();
+    }
+
+    private void runBluetoothSignalSilent(BluetoothSignalAction action) {
+        new Thread(action::run).start();
+    }
+
+    private void connectSocket(String host, String port, TextView socketStatus) {
+        socketStatus.setText("Socket bağlanıyor...");
+        new Thread(() -> {
+            boolean connected = socketBackend.connect(host, port);
+            runOnUiThread(() -> {
+                socketStatus.setText(socketBackend.status());
+                refreshStatus();
+                Toast.makeText(this, connected ? "PC socket bağlantısı hazır" : socketBackend.status(), Toast.LENGTH_LONG).show();
+            });
+        }).start();
+    }
+
+    private void runSocketSignal(SocketSignalAction action, TextView socketStatus) {
+        new Thread(() -> {
+            boolean sent = action.run();
+            runOnUiThread(() -> {
+                socketStatus.setText(socketBackend.status());
+                if (!sent) Toast.makeText(this, socketBackend.status(), Toast.LENGTH_LONG).show();
+            });
+        }).start();
+    }
+
+    private void runSocketSignalSilent(SocketSignalAction action) {
+        new Thread(action::run).start();
+    }
+
     private void runPythonScript(String script, TextView output) {
         output.setText("Script çalışıyor...");
         new Thread(() -> {
@@ -352,6 +411,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         mouseHandler.removeCallbacks(mouseDispatchRunnable);
+        socketBackend.close();
         if (bluetoothReceiverRegistered) {
             try { unregisterReceiver(bluetoothReceiver); } catch (Exception ignored) {}
             bluetoothReceiverRegistered = false;
@@ -360,4 +420,5 @@ public class MainActivity extends Activity {
 
     private interface HidAction { void run() throws Exception; }
     private interface BluetoothSignalAction { boolean run(); }
+    private interface SocketSignalAction { boolean run(); }
 }
