@@ -6,23 +6,27 @@ import java.util.List;
 public final class HidPythonBridge {
     private final RootHidBackend rootBackend;
     private final BluetoothHidBackend bluetoothBackend;
+    private final NetworkHidBackend networkBackend;
 
-    public HidPythonBridge(RootHidBackend rootBackend, BluetoothHidBackend bluetoothBackend) {
+    public HidPythonBridge(RootHidBackend rootBackend, BluetoothHidBackend bluetoothBackend, NetworkHidBackend networkBackend) {
         this.rootBackend = rootBackend;
         this.bluetoothBackend = bluetoothBackend;
+        this.networkBackend = networkBackend;
     }
 
     public void typeText(String text) throws Exception {
         String value = text == null ? "" : text;
         runOnAvailableBackends(
                 () -> rootBackend.sendText(value),
-                () -> bluetoothBackend.sendText(value));
+                () -> bluetoothBackend.sendText(value),
+                () -> networkBackend.sendText(value));
     }
 
     public void moveMouse(int dx, int dy) throws Exception {
         runOnAvailableBackends(
                 () -> rootBackend.moveMouse(dx, dy),
-                () -> bluetoothBackend.moveMouse(dx, dy));
+                () -> bluetoothBackend.moveMouse(dx, dy),
+                () -> networkBackend.moveMouse(dx, dy));
     }
 
     public void click() throws Exception {
@@ -36,21 +40,23 @@ public final class HidPythonBridge {
     public void clickButton(int buttonMask) throws Exception {
         runOnAvailableBackends(
                 () -> rootBackend.click(buttonMask),
-                () -> bluetoothBackend.click(buttonMask));
+                () -> bluetoothBackend.click(buttonMask),
+                () -> networkBackend.click(buttonMask));
     }
 
     public void key(String name) throws Exception {
         int keyCode = keyCodeForName(name);
         runOnAvailableBackends(
                 () -> rootBackend.sendKey(keyCode, 0),
-                () -> bluetoothBackend.sendKey(keyCode, 0));
+                () -> bluetoothBackend.sendKey(keyCode, 0),
+                () -> networkBackend.sendKey(keyCode, 0));
     }
 
     public void sleepMs(long milliseconds) throws InterruptedException {
         Thread.sleep(Math.max(0L, milliseconds));
     }
 
-    private void runOnAvailableBackends(ThrowingAction rootAction, ThrowingBooleanAction bluetoothAction) throws Exception {
+    private void runOnAvailableBackends(ThrowingAction rootAction, ThrowingBooleanAction bluetoothAction, ThrowingBooleanAction networkAction) throws Exception {
         List<String> errors = new ArrayList<>();
         boolean sent = false;
         try {
@@ -63,6 +69,11 @@ public final class HidPythonBridge {
             sent = bluetoothAction.run() || sent;
         } catch (Exception e) {
             errors.add("bluetooth: " + e.getMessage());
+        }
+        try {
+            sent = networkAction.run() || sent;
+        } catch (Exception e) {
+            errors.add("network: " + e.getMessage());
         }
         if (!sent) {
             throw new IllegalStateException("HID gönderimi başarısız: " + String.join("; ", errors));
