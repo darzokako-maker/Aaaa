@@ -29,7 +29,13 @@ final class RootHidBackend {
         }
     }
 
+    void sendKey(int keyCode, int modifier) throws IOException, InterruptedException {
+        writeHex(keyboardPath, HidReport.keyReport(keyCode, modifier, true));
+        writeHex(keyboardPath, HidReport.keyReport(keyCode, modifier, false));
+    }
+
     void moveMouse(int dx, int dy) throws IOException, InterruptedException {
+        if (dx == 0 && dy == 0) return;
         writeHex(mousePath, HidReport.mouse(0, dx, dy, 0));
     }
 

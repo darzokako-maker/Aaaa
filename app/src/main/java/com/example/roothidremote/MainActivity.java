@@ -34,9 +34,13 @@ public class MainActivity extends Activity {
     private ArrayAdapter<String> deviceListAdapter;
     private final List<BluetoothDevice> discoveredDevices = new ArrayList<>();
     
+    private static final float MOUSE_SENSITIVITY = 0.65f;
+    private static final float TAP_SLOP = 18f;
+
     private TextView status;
     private boolean bluetoothReceiverRegistered;
-    private float lastX, lastY;
+    private float lastX, lastY, downX, downY, mouseRemainderX, mouseRemainderY;
+    private boolean touchMoved;
 
     private final BroadcastReceiver bluetoothReceiver = new BroadcastReceiver() {
         @SuppressLint("MissingPermission")
@@ -83,7 +87,21 @@ public class MainActivity extends Activity {
         EditText text = new EditText(this); text.setHint("Klavye ile gönderilecek yazı"); root.addView(text);
         Button send = button("USB/root ile yazıyı gönder"); root.addView(send);
         Button sendBt = button("Bluetooth ile yazıyı gönder"); root.addView(sendBt);
-        TextView pad = label("Mouse pad: burada sürükle\nSol tık için dokun"); pad.setMinHeight(420); pad.setTextSize(20); root.addView(pad);
+
+        root.addView(label("Klavye kısayolları"));
+        LinearLayout keyboardRow1 = horizontalRow(); root.addView(keyboardRow1);
+        addKeyboardButton(keyboardRow1, "Enter", HidReport.KeyCode.ENTER, 0);
+        addKeyboardButton(keyboardRow1, "Backspace", HidReport.KeyCode.BACKSPACE, 0);
+        addKeyboardButton(keyboardRow1, "Tab", HidReport.KeyCode.TAB, 0);
+        addKeyboardButton(keyboardRow1, "Esc", HidReport.KeyCode.ESCAPE, 0);
+        LinearLayout keyboardRow2 = horizontalRow(); root.addView(keyboardRow2);
+        addKeyboardButton(keyboardRow2, "←", HidReport.KeyCode.LEFT, 0);
+        addKeyboardButton(keyboardRow2, "↑", HidReport.KeyCode.UP, 0);
+        addKeyboardButton(keyboardRow2, "↓", HidReport.KeyCode.DOWN, 0);
+        addKeyboardButton(keyboardRow2, "→", HidReport.KeyCode.RIGHT, 0);
+        addKeyboardButton(keyboardRow2, "Delete", HidReport.KeyCode.DELETE, 0);
+
+        TextView pad = label("Mouse pad: akıcı hareket için sürükle\nKısa dokun: sol tık"); pad.setMinHeight(420); pad.setTextSize(20); root.addView(pad);
         Button right = button("USB/root sağ tık"); root.addView(right);
         Button rightBt = button("Bluetooth sağ tık"); root.addView(rightBt);
         
@@ -228,22 +246,54 @@ public class MainActivity extends Activity {
     }
 
     private boolean handleTouch(MotionEvent event) {
-        if (event.getAction() == MotionEvent.ACTION_DOWN) { lastX = event.getX(); lastY = event.getY(); return true; }
+        if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            downX = lastX = event.getX();
+            downY = lastY = event.getY();
+            mouseRemainderX = mouseRemainderY = 0f;
+            touchMoved = false;
+            return true;
+        }
         if (event.getAction() == MotionEvent.ACTION_MOVE) {
-            int dx = Math.round((event.getX() - lastX) / 2f); int dy = Math.round((event.getY() - lastY) / 2f);
-            lastX = event.getX(); lastY = event.getY();
-            runRoot(() -> rootBackend.moveMouse(dx, dy));
-            runBluetoothSignal(() -> bluetoothBackend.moveMouse(dx, dy));
+            float rawDx = event.getX() - lastX;
+            float rawDy = event.getY() - lastY;
+            lastX = event.getX();
+            lastY = event.getY();
+            if (distance(event.getX() - downX, event.getY() - downY) > TAP_SLOP) touchMoved = true;
+
+            mouseRemainderX += rawDx * MOUSE_SENSITIVITY;
+            mouseRemainderY += rawDy * MOUSE_SENSITIVITY;
+            int dx = (int) mouseRemainderX;
+            int dy = (int) mouseRemainderY;
+            mouseRemainderX -= dx;
+            mouseRemainderY -= dy;
+            if (dx != 0 || dy != 0) {
+                runRootQuiet(() -> rootBackend.moveMouse(dx, dy));
+                runBluetoothSignalQuiet(() -> bluetoothBackend.moveMouse(dx, dy));
+            }
             return true;
         }
         if (event.getAction() == MotionEvent.ACTION_UP) {
-            runRoot(() -> rootBackend.click(1));
-            runBluetoothSignal(() -> bluetoothBackend.click(1));
+            if (!touchMoved && distance(event.getX() - downX, event.getY() - downY) <= TAP_SLOP) {
+                runRoot(() -> rootBackend.click(1));
+                runBluetoothSignal(() -> bluetoothBackend.click(1));
+            }
             return true;
         }
         return true;
     }
 
+    private void addKeyboardButton(LinearLayout row, String label, int keyCode, int modifier) {
+        Button key = button(label);
+        key.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        key.setOnClickListener(v -> {
+            runRoot(() -> rootBackend.sendKey(keyCode, modifier));
+            runBluetoothSignal(() -> bluetoothBackend.sendKey(keyCode, modifier));
+        });
+        row.addView(key);
+    }
+
+    private LinearLayout horizontalRow() { LinearLayout row = new LinearLayout(this); row.setOrientation(LinearLayout.HORIZONTAL); return row; }
+    private float distance(float dx, float dy) { return (float) Math.hypot(dx, dy); }
     private TextView label(String value) { TextView view = new TextView(this); view.setText(value); view.setTextSize(16); view.setPadding(0,12,0,12); return view; }
     private Button button(String value) { Button b = new Button(this); b.setText(value); return b; }
 
@@ -254,10 +304,25 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private void runRootQuiet(HidAction action) {
+        new Thread(() -> {
+            try { action.run(); }
+            catch (Exception ignored) {}
+        }).start();
+    }
+
     private void runBluetoothSignal(BluetoothSignalAction action) {
+        runBluetoothSignal(action, true);
+    }
+
+    private void runBluetoothSignalQuiet(BluetoothSignalAction action) {
+        runBluetoothSignal(action, false);
+    }
+
+    private void runBluetoothSignal(BluetoothSignalAction action, boolean showError) {
         new Thread(() -> {
             boolean sent = action.run();
-            if (!sent) {
+            if (!sent && showError) {
                 runOnUiThread(() -> Toast.makeText(this, bluetoothBackend.status(), Toast.LENGTH_LONG).show());
             }
         }).start();
