@@ -80,7 +80,7 @@ public class MainActivity extends Activity {
         
         // PASİF KÖPRÜ BAĞLANTILARI
         networkBackend.setBackends(rootBackend, bluetoothBackend);
-        networkBackend.setUseRoot(true); // Varsayılan olarak PC'den gelenleri Root(USB) üzerinden ilet
+        networkBackend.setUseRoot(false); // Varsayılan olarak PC'den gelenleri Root(USB) üzerinden ilet
         
         requestBluetoothRuntimePermissions();
 
