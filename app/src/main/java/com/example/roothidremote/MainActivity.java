@@ -104,6 +104,14 @@ public class MainActivity extends Activity {
         TextView pad = label("Mouse pad: akıcı hareket için sürükle\nKısa dokun: sol tık"); pad.setMinHeight(420); pad.setTextSize(20); root.addView(pad);
         Button right = button("USB/root sağ tık"); root.addView(right);
         Button rightBt = button("Bluetooth sağ tık"); root.addView(rightBt);
+
+        root.addView(label("Python script çalıştır"));
+        EditText pythonScript = new EditText(this);
+        pythonScript.setMinLines(5);
+        pythonScript.setHint("print('Merhaba HID')");
+        root.addView(pythonScript);
+        Button runPython = button("Python scripti çalıştır"); root.addView(runPython);
+        TextView pythonOutput = label("Python çıktısı burada görünecek"); root.addView(pythonOutput);
         
         scrollView.addView(root);
         setContentView(scrollView);
@@ -126,7 +134,8 @@ public class MainActivity extends Activity {
         sendBt.setOnClickListener(v -> runBluetoothSignal(() -> bluetoothBackend.sendText(text.getText().toString())));
         right.setOnClickListener(v -> runRoot(() -> rootBackend.click(2)));
         rightBt.setOnClickListener(v -> runBluetoothSignal(() -> bluetoothBackend.click(2)));
-        pad.setOnTouchListener((v, event) -> handleTouch(event));
+        runPython.setOnClickListener(v -> runPythonScript(pythonScript.getText().toString(), pythonOutput));
+        pad.setOnTouchListener((v, event) -> handleTouch(v, event));
 
         IntentFilter filter = new IntentFilter();
         filter.addAction(BluetoothDevice.ACTION_FOUND);
@@ -245,8 +254,9 @@ public class MainActivity extends Activity {
         status.setText("Root: " + (rootOk ? "var" : "yok") + "\nBluetooth HID: " + (btOk ? "deneniyor" : "kapalı/izin yok") + "\n" + bluetoothBackend.status() + "\nUSB gadget yolları: /dev/hidg0 klavye, /dev/hidg1 mouse");
     }
 
-    private boolean handleTouch(MotionEvent event) {
+    private boolean handleTouch(android.view.View view, MotionEvent event) {
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            view.getParent().requestDisallowInterceptTouchEvent(true);
             downX = lastX = event.getX();
             downY = lastY = event.getY();
             mouseRemainderX = mouseRemainderY = 0f;
@@ -273,13 +283,29 @@ public class MainActivity extends Activity {
             return true;
         }
         if (event.getAction() == MotionEvent.ACTION_UP) {
+            view.getParent().requestDisallowInterceptTouchEvent(false);
             if (!touchMoved && distance(event.getX() - downX, event.getY() - downY) <= TAP_SLOP) {
                 runRoot(() -> rootBackend.click(1));
                 runBluetoothSignal(() -> bluetoothBackend.click(1));
             }
             return true;
         }
+        if (event.getAction() == MotionEvent.ACTION_CANCEL) {
+            view.getParent().requestDisallowInterceptTouchEvent(false);
+            return true;
+        }
         return true;
+    }
+
+    private void runPythonScript(String script, TextView outputView) {
+        outputView.setText("Python script çalışıyor...");
+        new Thread(() -> {
+            PythonScriptRunner.Result result = PythonScriptRunner.run(this, script);
+            runOnUiThread(() -> {
+                outputView.setText(result.message);
+                Toast.makeText(this, result.success ? "Python script çalıştı" : "Python script çalışmadı", Toast.LENGTH_LONG).show();
+            });
+        }).start();
     }
 
     private void addKeyboardButton(LinearLayout row, String label, int keyCode, int modifier) {
