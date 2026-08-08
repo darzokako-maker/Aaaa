@@ -25,10 +25,15 @@ import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private final RootHidBackend rootBackend = new RootHidBackend("/dev/hidg0", "/dev/hidg1");
     private final BluetoothHidBackend bluetoothBackend = new BluetoothHidBackend();
+    private final ExecutorService rootExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService bluetoothExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService pythonExecutor = Executors.newSingleThreadExecutor();
     
     private BluetoothAdapter bluetoothAdapter;
     private ArrayAdapter<String> deviceListAdapter;
@@ -36,11 +41,13 @@ public class MainActivity extends Activity {
     
     private static final float MOUSE_SENSITIVITY = 0.65f;
     private static final float TAP_SLOP = 18f;
+    private static final long MOUSE_DISPATCH_INTERVAL_MS = 8L;
 
     private TextView status;
     private boolean bluetoothReceiverRegistered;
     private float lastX, lastY, downX, downY, mouseRemainderX, mouseRemainderY;
     private boolean touchMoved;
+    private long lastMouseDispatchTimeMs;
 
     private final BroadcastReceiver bluetoothReceiver = new BroadcastReceiver() {
         @SuppressLint("MissingPermission")
@@ -123,10 +130,10 @@ public class MainActivity extends Activity {
         deviceListView.setOnItemClickListener((parent, view, position, id) -> {
             if (position < discoveredDevices.size()) {
                 BluetoothDevice selectedDevice = discoveredDevices.get(position);
-                new Thread(() -> {
+                bluetoothExecutor.execute(() -> {
                     boolean connected = bluetoothBackend.connectDevice(selectedDevice);
                     runOnUiThread(() -> showBluetoothConnectResult(connected));
-                }).start();
+                });
             }
         });
 
@@ -237,10 +244,10 @@ public class MainActivity extends Activity {
             requestBluetoothRuntimePermissions();
             return;
         }
-        new Thread(() -> {
+        bluetoothExecutor.execute(() -> {
             boolean connected = bluetoothBackend.connectByMac(macAddress);
             runOnUiThread(() -> showBluetoothConnectResult(connected));
-        }).start();
+        });
     }
 
     private void showBluetoothConnectResult(boolean commandSent) {
@@ -261,6 +268,7 @@ public class MainActivity extends Activity {
             downY = lastY = event.getY();
             mouseRemainderX = mouseRemainderY = 0f;
             touchMoved = false;
+            lastMouseDispatchTimeMs = 0L;
             return true;
         }
         if (event.getAction() == MotionEvent.ACTION_MOVE) {
@@ -274,9 +282,11 @@ public class MainActivity extends Activity {
             mouseRemainderY += rawDy * MOUSE_SENSITIVITY;
             int dx = (int) mouseRemainderX;
             int dy = (int) mouseRemainderY;
-            mouseRemainderX -= dx;
-            mouseRemainderY -= dy;
-            if (dx != 0 || dy != 0) {
+            long now = System.currentTimeMillis();
+            if ((dx != 0 || dy != 0) && now - lastMouseDispatchTimeMs >= MOUSE_DISPATCH_INTERVAL_MS) {
+                mouseRemainderX -= dx;
+                mouseRemainderY -= dy;
+                lastMouseDispatchTimeMs = now;
                 runRootQuiet(() -> rootBackend.moveMouse(dx, dy));
                 runBluetoothSignalQuiet(() -> bluetoothBackend.moveMouse(dx, dy));
             }
@@ -299,13 +309,13 @@ public class MainActivity extends Activity {
 
     private void runPythonScript(String script, TextView outputView) {
         outputView.setText("Python script çalışıyor...");
-        new Thread(() -> {
+        pythonExecutor.execute(() -> {
             PythonScriptRunner.Result result = PythonScriptRunner.run(this, script);
             runOnUiThread(() -> {
                 outputView.setText(result.message);
                 Toast.makeText(this, result.success ? "Python script çalıştı" : "Python script çalışmadı", Toast.LENGTH_LONG).show();
             });
-        }).start();
+        });
     }
 
     private void addKeyboardButton(LinearLayout row, String label, int keyCode, int modifier) {
@@ -324,17 +334,17 @@ public class MainActivity extends Activity {
     private Button button(String value) { Button b = new Button(this); b.setText(value); return b; }
 
     private void runRoot(HidAction action) {
-        new Thread(() -> {
+        rootExecutor.execute(() -> {
             try { action.run(); runOnUiThread(() -> Toast.makeText(this, "Gönderildi", Toast.LENGTH_SHORT).show()); }
             catch (Exception e) { runOnUiThread(() -> Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show()); }
-        }).start();
+        });
     }
 
     private void runRootQuiet(HidAction action) {
-        new Thread(() -> {
+        rootExecutor.execute(() -> {
             try { action.run(); }
             catch (Exception ignored) {}
-        }).start();
+        });
     }
 
     private void runBluetoothSignal(BluetoothSignalAction action) {
@@ -346,12 +356,12 @@ public class MainActivity extends Activity {
     }
 
     private void runBluetoothSignal(BluetoothSignalAction action, boolean showError) {
-        new Thread(() -> {
+        bluetoothExecutor.execute(() -> {
             boolean sent = action.run();
             if (!sent && showError) {
                 runOnUiThread(() -> Toast.makeText(this, bluetoothBackend.status(), Toast.LENGTH_LONG).show());
             }
-        }).start();
+        });
     }
 
     @Override
@@ -361,6 +371,9 @@ public class MainActivity extends Activity {
             try { unregisterReceiver(bluetoothReceiver); } catch (Exception ignored) {}
             bluetoothReceiverRegistered = false;
         }
+        rootExecutor.shutdownNow();
+        bluetoothExecutor.shutdownNow();
+        pythonExecutor.shutdownNow();
     }
 
     private interface HidAction { void run() throws Exception; }
