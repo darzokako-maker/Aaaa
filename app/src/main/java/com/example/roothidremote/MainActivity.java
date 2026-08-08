@@ -34,6 +34,7 @@ public class MainActivity extends Activity {
     private final ExecutorService rootExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService bluetoothExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService pythonExecutor = Executors.newSingleThreadExecutor();
+    private final HidPythonBridge hidPythonBridge = new HidPythonBridge(rootBackend, bluetoothBackend);
     
     private BluetoothAdapter bluetoothAdapter;
     private ArrayAdapter<String> deviceListAdapter;
@@ -115,7 +116,7 @@ public class MainActivity extends Activity {
         root.addView(label("Python script çalıştır"));
         EditText pythonScript = new EditText(this);
         pythonScript.setMinLines(5);
-        pythonScript.setHint("print('Merhaba HID')");
+        pythonScript.setHint("type_text('Merhaba PC')\nmove_mouse(80, 0)\nclick()\nkey('enter')");
         root.addView(pythonScript);
         Button runPython = button("Python scripti çalıştır"); root.addView(runPython);
         TextView pythonOutput = label("Python çıktısı burada görünecek"); root.addView(pythonOutput);
@@ -310,7 +311,7 @@ public class MainActivity extends Activity {
     private void runPythonScript(String script, TextView outputView) {
         outputView.setText("Python script çalışıyor...");
         pythonExecutor.execute(() -> {
-            PythonScriptRunner.Result result = PythonScriptRunner.run(this, script);
+            PythonScriptRunner.Result result = PythonScriptRunner.run(this, script, hidPythonBridge);
             runOnUiThread(() -> {
                 outputView.setText(result.message);
                 Toast.makeText(this, result.success ? "Python script çalıştı" : "Python script çalışmadı", Toast.LENGTH_LONG).show();

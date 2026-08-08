@@ -23,5 +23,13 @@ android {
 chaquopy {
     defaultConfig {
         version = '3.13'
+        pip {
+            install 'requests'
+            install 'beautifulsoup4'
+            install 'lxml'
+            install 'python-dateutil'
+            install 'pytz'
+            install 'packaging'
+        }
     }
 }

@@ -9,7 +9,7 @@ import com.chaquo.python.android.AndroidPlatform;
 final class PythonScriptRunner {
     private PythonScriptRunner() {}
 
-    static synchronized Result run(Context context, String script) {
+    static synchronized Result run(Context context, String script, HidPythonBridge bridge) {
         if (script == null || script.trim().isEmpty()) {
             return new Result(false, "Çalıştırılacak Python kodu boş.");
         }
@@ -19,7 +19,7 @@ final class PythonScriptRunner {
             }
             PyObject result = Python.getInstance()
                     .getModule("script_runner")
-                    .callAttr("run_user_script", script);
+                    .callAttr("run_user_script", script, bridge);
             boolean success = result.asList().get(0).toBoolean();
             String message = result.asList().get(1).toString();
             return new Result(success, message);
