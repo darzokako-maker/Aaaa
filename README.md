@@ -24,6 +24,8 @@ Android telefondan başka bir cihaza klavye ve mouse HID raporları göndermek i
 
 ## Derleme
 
+Chaquopy, uygulama içine Python runtime paketler. Derleme makinesinde uygulama Python sürümüyle eşleşen `python3.13` komutu bulunmalıdır; GitHub Actions workflow'u bunu otomatik kurar. Python paket listesi `app/src/main/python/requirements.txt` içinden yüklenir.
+
 ```bash
 gradle :app:assembleDebug
 ```

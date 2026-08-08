@@ -1,5 +1,31 @@
-plugins { id 'com.android.application' }
+plugins {
+    id 'com.android.application'
+    id 'com.chaquo.python'
+}
 
-android { namespace 'com.example.roothidremote'; compileSdk 36
-    defaultConfig { applicationId 'com.example.roothidremote'; minSdk 28; targetSdk 36; versionCode 1; versionName '1.0' }
+android {
+    namespace 'com.example.roothidremote'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.example.roothidremote'
+        minSdk 28
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+
+        ndk {
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version = '3.13'
+        buildPython 'python3.13'
+        pip {
+            install '-r', 'src/main/python/requirements.txt'
+        }
+    }
 }

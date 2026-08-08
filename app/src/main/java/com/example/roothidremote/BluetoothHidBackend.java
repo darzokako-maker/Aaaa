@@ -124,7 +124,16 @@ final class BluetoothHidBackend {
         return true;
     }
 
+    boolean sendKey(int keyCode, int modifier) {
+        if (!sendKeyboardReport(HidReport.keyReport(keyCode, modifier, true))) return false;
+        sleepBetweenReports();
+        if (!sendKeyboardReport(HidReport.keyReport(keyCode, modifier, false))) return false;
+        lastStatus = "Bluetooth klavye tuşu gönderildi.";
+        return true;
+    }
+
     boolean moveMouse(int dx, int dy) {
+        if (dx == 0 && dy == 0) return true;
         return sendMouseReport(HidReport.mouse(0, dx, dy, 0), "Bluetooth mouse hareketi gönderildi.");
     }
 

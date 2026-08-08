@@ -1,4 +1,13 @@
-pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
-dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal(); maven { url 'https://chaquo.com/maven' } }
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == 'com.chaquo.python') {
+                useModule("com.chaquo.python:gradle:${requested.version}")
+            }
+        }
+    }
+}
+dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral(); maven { url 'https://chaquo.com/maven' } } }
 rootProject.name='RootHidRemote'
 include ':app'

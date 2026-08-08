@@ -1,0 +1,26 @@
+# Chaquopy-packaged libraries for user scripts.
+# Keep this list to packages which are useful on Android and known to install
+# cleanly from PyPI/Chaquopy wheels in CI.
+requests
+httpx
+urllib3
+certifi
+charset-normalizer
+idna
+beautifulsoup4
+soupsieve
+lxml
+html5lib
+PyYAML
+python-dateutil
+pytz
+tzdata
+packaging
+attrs
+click
+colorama
+tqdm
+regex
+pyperclip
+Pillow
+numpy

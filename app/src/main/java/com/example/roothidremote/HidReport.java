@@ -30,7 +30,7 @@ final class HidReport {
     static {
         for (char c = 'a'; c <= 'z'; c++) add(c, 0, 4 + c - 'a');
         for (char c = '1'; c <= '9'; c++) add(c, 0, 30 + c - '1');
-        add('0', 0, 39); add('\n', 0, 40); add('\r', 0, 40); add('\t', 0, 43); add(' ', 0, 44);
+        add('0', 0, 39); add('\n', 0, KeyCode.ENTER); add('\r', 0, KeyCode.ENTER); add('\t', 0, KeyCode.TAB); add(' ', 0, KeyCode.SPACE);
         add('-', 0, 45); add('_', 2, 45); add('=', 0, 46); add('+', 2, 46);
         add('[', 0, 47); add('{', 2, 47); add(']', 0, 48); add('}', 2, 48);
         add('\\', 0, 49); add('|', 2, 49); add(';', 0, 51); add(':', 2, 51);
@@ -50,11 +50,30 @@ final class HidReport {
             uppercaseLetter = false;
         }
         int modifier = uppercaseLetter ? 0x02 : key.modifier;
-        return down ? new byte[]{(byte) modifier, (byte) 0, (byte) key.code, (byte) 0, (byte) 0, (byte) 0, (byte) 0, (byte) 0} : new byte[8];
+        return keyReport(key.code, modifier, down);
+    }
+
+    static byte[] keyReport(int keyCode, int modifier, boolean down) {
+        return down ? new byte[]{(byte) modifier, (byte) 0, (byte) keyCode, (byte) 0, (byte) 0, (byte) 0, (byte) 0, (byte) 0} : new byte[8];
     }
 
     static byte[] mouse(int buttons, int dx, int dy, int wheel) {
         return new byte[]{(byte) buttons, clamp(dx), clamp(dy), clamp(wheel)};
+    }
+
+    static final class KeyCode {
+        static final int ENTER = 40;
+        static final int ESCAPE = 41;
+        static final int BACKSPACE = 42;
+        static final int TAB = 43;
+        static final int SPACE = 44;
+        static final int DELETE = 76;
+        static final int RIGHT = 79;
+        static final int LEFT = 80;
+        static final int DOWN = 81;
+        static final int UP = 82;
+
+        private KeyCode() {}
     }
 
     private static void add(char c, int modifier, int code) { KEYS.put(c, new Key(modifier, code)); }
