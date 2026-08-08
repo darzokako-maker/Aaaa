@@ -34,6 +34,3 @@ Oluşan APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
 Root, Android'in public Bluetooth HID Device API kısıtını otomatik kaldırmaz. Stock Android cihazların çoğunda `BLUETOOTH_PRIVILEGED` yalnızca sistem imzalı/privileged uygulamalara verilir. Bu yüzden Bluetooth tarafı uygulamada algılanır ve durum mesajı gösterir; gerçek Bluetooth HID için APK'yı `/system/priv-app` içine privileged olarak kurmanız veya ROM tarafında izni vermeniz gerekir.
 
-## Güvenlik
-
-Bu uygulama güçlü root ve HID yetenekleri kullanır. Sadece kendi cihazlarınızda, izinli testlerde ve yasal amaçlarla kullanın.
